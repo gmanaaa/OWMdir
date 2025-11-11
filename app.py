@@ -47,8 +47,10 @@ def notify_rain_forecast(data):
         line_bot_api.broadcast(TextSendMessage(text="明日は雨の心配はなさそうです😊"))
 
 
-# --- ② 今日と明日の気温差通知 ---今日と明日の気温データを集めて平均を計算。---
-def notify_temp_difference(data):
+# --- ② 今日と明日の気温差通知 ---今日と明日の（7時〜20時）の気温データを集めて平均を計算。---
+def notify_daytime_temp_difference(data):
+    # 勤務時間帯（7時〜20時）
+    START_HOUR, END_HOUR = 7, 20
     now = datetime.now(JST)
     today = now.date()
     tomorrow = (now + timedelta(days=1)).date()
@@ -57,26 +59,35 @@ def notify_temp_difference(data):
 
     for item in data["list"]:
         dt = datetime.utcfromtimestamp(item["dt"]).replace(tzinfo=timezone.utc).astimezone(JST)
-        if dt.date() == today:
-            temps_today.append(item["main"]["temp"])
-        elif dt.date() == tomorrow:
-            temps_tomorrow.append(item["main"]["temp"])
+        if START_HOUR <= dt.hour <= END_HOUR:
+            if dt.date() == today:
+                temps_today.append(item["main"]["temp"])
+            elif dt.date() == tomorrow:
+                temps_tomorrow.append(item["main"]["temp"])
 
     if temps_today and temps_tomorrow:
         avg_today = sum(temps_today) / len(temps_today)
         avg_tomorrow = sum(temps_tomorrow) / len(temps_tomorrow)
         diff = avg_tomorrow - avg_today
 
-        # 蓄積
+    # --- CSVに保存 ---
         save_temps(today, avg_today)
         save_temps(tomorrow, avg_tomorrow)
 
         if abs(diff) >= 5:
-            message = f"今日と明日の平均気温差は {diff:.1f}℃ です！体調管理に注意してください。"
-            line_bot_api.broadcast(TextSendMessage(text=message))
+            message = (
+                f"【気温差アラート】\n"
+                f"今日(7〜20時)の平均: {avg_today:.1f}℃\n"
+                f"明日(7〜20時)の平均: {avg_tomorrow:.1f}℃\n"
+                f"差は {diff:.1f}℃ です！体調管理に注意してください。"
+            )
         else:
-            line_bot_api.broadcast(TextSendMessage(text="明日との寒暖差は5℃未満なので安心です😊"))
+            message = (
+                f"明日の勤務時間帯の平均気温は {avg_tomorrow:.1f}℃。\n"
+                f"今日との差は {diff:.1f}℃ なので大きな変化はなさそうです😊"
+            )
 
+        line_bot_api.broadcast(TextSendMessage(text=message))
 
 # --- ③ 気温をCSVに蓄積 ---日付と平均気温を temps.csv に追記。---
 def save_temps(date, avg_temp):
@@ -94,4 +105,4 @@ def save_temps(date, avg_temp):
 if __name__ == "__main__":
     forecast = get_forecast()
     notify_rain_forecast(forecast)
-    notify_temp_difference(forecast)
+    notify_daytime_temp_difference(forecast)
